@@ -42,6 +42,7 @@ class JarvisService : Service(), TextToSpeech.OnInitListener {
     private var speaking = false
     private var active = false
     private var running = true
+    private var server: PhoneServer? = null
     private val wake = Regex("\\b(hey|hi|hay|okay|ok)\\s+(jarvis|jervis|garvis|jarvish|jarvas)\\b")
     private val timeout = Runnable { goIdle(0) }
 
@@ -53,6 +54,23 @@ class JarvisService : Service(), TextToSpeech.OnInitListener {
         tone = try { ToneGenerator(AudioManager.STREAM_MUSIC, 80) } catch (_: Exception) { null }
         proc = CommandProcessor(this) { say(it) }
         tts = TextToSpeech(this, this)
+        server = PhoneServer(8765, { PhoneServer.getPin(this) }) { q -> remote(q) }
+        server?.start()
+    }
+
+    /** Command coming from the laptop: run it silently on the phone and return the reply text. */
+    private fun remote(q: String): String {
+        var reply = "Done"
+        val latch = java.util.concurrent.CountDownLatch(1)
+        h.post {
+            try {
+                showOverlay("💻  $q")
+                h.postDelayed({ if (!active) hideOverlay() }, 1800)
+                CommandProcessor(this) { reply = it }.handle(q.lowercase().trim())
+            } finally { latch.countDown() }
+        }
+        latch.await(4, java.util.concurrent.TimeUnit.SECONDS)
+        return reply
     }
 
     private fun notif(text: String): Notification {
@@ -174,7 +192,7 @@ class JarvisService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
-        running = false; h.removeCallbacksAndMessages(null); hideOverlay()
+        running = false; server?.stop(); h.removeCallbacksAndMessages(null); hideOverlay()
         rec?.destroy(); tone?.release(); tts.shutdown(); super.onDestroy()
     }
     override fun onBind(i: Intent?): IBinder? = null

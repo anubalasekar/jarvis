@@ -17,6 +17,7 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
+    private lateinit var bridge: TextView
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
@@ -35,6 +36,7 @@ class MainActivity : Activity() {
         }
         col.addView(text("J.A.R.V.I.S", 34f, 0xFF3DD9FF.toInt(), true))
         status = text("", 15f, 0xFFB8C7D9.toInt()); col.addView(status)
+        bridge = text("", 14f, 0xFF3DD9FF.toInt()); col.addView(bridge)
         col.addView(button("1. Allow microphone, phone, contacts") {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CALL_PHONE,
                 Manifest.permission.READ_CONTACTS, Manifest.permission.POST_NOTIFICATIONS), 1) })
@@ -54,18 +56,25 @@ class MainActivity : Activity() {
             stopService(Intent(this, JarvisService::class.java)); refresh() })
         col.addView(text(
             "Try saying:\n\n" +
-            "\"Jarvis, open WhatsApp\"\n\"Jarvis, call Mom\"\n\"Jarvis, flashlight on\"\n" +
-            "\"Jarvis, volume up\"\n\"Jarvis, go home / go back\"\n\"Jarvis, scroll down\"\n" +
-            "\"Jarvis, take a screenshot\"\n\"Jarvis, lock the phone\"\n\"Jarvis, set alarm for 7:30 am\"\n" +
-            "\"Jarvis, set timer for 5 minutes\"\n\"Jarvis, navigate to Marina Beach\"\n" +
-            "\"Jarvis, play Believer on YouTube\"\n\"Jarvis, search for weather\"\n" +
-            "\"Jarvis, next song / pause\"\n\"Jarvis, battery level\"", 14f, 0xFF7F8FA3.toInt()))
+            "\"Hey Jarvis, open WhatsApp\"\n\"Hey Jarvis, call Mom\"\n\"Hey Jarvis, flashlight on\"\n" +
+            "\"Hey Jarvis, volume up\"\n\"Hey Jarvis, go home / go back\"\n\"Hey Jarvis, scroll down\"\n" +
+            "\"Hey Jarvis, take a screenshot\"\n\"Hey Jarvis, lock the phone\"\n\"Hey Jarvis, set alarm for 7:30 am\"\n" +
+            "\"Hey Jarvis, set timer for 5 minutes\"\n\"Hey Jarvis, navigate to Marina Beach\"\n" +
+            "\"Hey Jarvis, play Believer on YouTube\"\n\"Hey Jarvis, search for weather\"\n\"Hey Jarvis, search cats on YouTube\"\n\"Hey Jarvis, search shoes on Amazon\"\n\"Hey Jarvis, find pizza on maps\"\n" +
+            "\"Hey Jarvis, next song / pause\"\n\"Hey Jarvis, battery level\"", 14f, 0xFF7F8FA3.toInt()))
         setContentView(ScrollView(this).apply { setBackgroundColor(0xFF05080F.toInt()); addView(col) })
     }
 
     override fun onResume() { super.onResume(); refresh() }
 
+    private fun ip(): String = try {
+        java.net.NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }
+            .firstOrNull { !it.isLoopbackAddress && it is java.net.Inet4Address && it.isSiteLocalAddress }
+            ?.hostAddress ?: "not on Wi-Fi"
+    } catch (e: Exception) { "unknown" }
+
     private fun refresh() {
+        bridge.text = "💻 Laptop bridge\nPhone IP: ${ip()}   PIN: ${PhoneServer.getPin(this)}"
         val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val a11y = (Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: "").contains(packageName)
         val overlay = Settings.canDrawOverlays(this)
