@@ -27,7 +27,7 @@ class JarvisService : Service(), TextToSpeech.OnInitListener {
     private var speaking = false
     private var awaiting = false
     private var running = true
-    private val wakeWords = listOf("jarvis", "jervis", "garvis", "jarvish", "jarvas")
+    private val wake = Regex("\\b(hey|hi|hay|okay|ok)\\s+(jarvis|jervis|garvis|jarvish|jarvas)\\b")
 
     override fun onCreate() {
         super.onCreate()
