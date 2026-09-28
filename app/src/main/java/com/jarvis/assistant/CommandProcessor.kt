@@ -35,6 +35,8 @@ class CommandProcessor(private val app: Context, private val say: (String) -> Un
                 c.isEmpty() -> say("Yes?")
                 Regex("^(open|launch|start) ").containsMatchIn(c) -> openApp(c.substringAfter(" ").trim())
                 c.startsWith("call ") || c.startsWith("phone ") -> call(c.substringAfter(" ").trim())
+                Regex("^(search|find|look up|google) ").containsMatchIn(c) ||
+                    Regex("^play .+ (on|in) (youtube|spotify)$").containsMatchIn(c) -> smartSearch(c)
                 c.contains("flashlight") || c.contains("torch") -> torch(!c.contains("off"))
                 c.contains("volume up") || c.contains("louder") -> vol(AudioManager.ADJUST_RAISE, "Volume up")
                 c.contains("volume down") || c.contains("quieter") -> vol(AudioManager.ADJUST_LOWER, "Volume down")
@@ -64,13 +66,6 @@ class CommandProcessor(private val app: Context, private val say: (String) -> Un
                     val place = c.substringAfter(" to ")
                     go(Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(place))).setPackage("com.google.android.apps.maps"))
                     say("Navigating to $place") }
-                c.startsWith("play ") && c.contains(" on youtube") -> {
-                    val q = c.removePrefix("play ").substringBefore(" on youtube")
-                    go(Intent(Intent.ACTION_SEARCH).setPackage("com.google.android.youtube").putExtra("query", q))
-                    say("Playing $q on YouTube") }
-                c.startsWith("search ") || c.startsWith("google ") || c.startsWith("look up ") -> {
-                    val q = c.replace(Regex("^(search|google|look up)( for)? "), "")
-                    go(Intent(Intent.ACTION_WEB_SEARCH).putExtra("query", q)); say("Searching for $q") }
                 c.contains("time") -> say("It's " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date()))
                 c.contains("date") || c.contains("today") -> say(SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date()))
                 c.contains("battery") -> battery()
@@ -90,6 +85,43 @@ class CommandProcessor(private val app: Context, private val say: (String) -> Un
     private fun media(key: Int, msg: String) {
         audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key))
         audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, key)); say(msg)
+    }
+
+    /** "search cats on youtube", "search amazon for shoes", "google weather", "play believer on spotify" ... */
+    private fun smartSearch(c: String) {
+        val known = "youtube|google maps|maps|amazon|flipkart|spotify|play store|wikipedia|google|chrome|twitter"
+        val a = Regex("^(?:search|find|look up|google|play)(?: for)? (.+?) (?:on|in|at) ($known)$").find(c)
+        val b = Regex("^(?:search|find|look up) ($known) for (.+)$").find(c)
+        val q: String
+        val t: String
+        when {
+            a != null -> { q = a.groupValues[1]; t = a.groupValues[2] }
+            b != null -> { t = b.groupValues[1]; q = b.groupValues[2] }
+            else -> { q = c.replace(Regex("^(search|google|look up|find)( for)? "), ""); t = "google" }
+        }
+        val e = Uri.encode(q)
+        fun view(uri: String, pkg: String? = null) {
+            try {
+                val i = Intent(Intent.ACTION_VIEW, Uri.parse(uri))
+                if (pkg != null) i.setPackage(pkg)
+                go(i)
+            } catch (ex: Exception) { go(Intent(Intent.ACTION_VIEW, Uri.parse(uri))) }
+        }
+        when (t) {
+            "youtube" -> try {
+                go(Intent(Intent.ACTION_SEARCH).setPackage("com.google.android.youtube").putExtra("query", q))
+            } catch (ex: Exception) { view("https://www.youtube.com/results?search_query=$e") }
+            "spotify" -> view("spotify:search:$e")
+            "maps", "google maps" -> view("geo:0,0?q=$e")
+            "amazon" -> view("https://www.amazon.in/s?k=$e")
+            "flipkart" -> view("https://www.flipkart.com/search?q=$e")
+            "play store" -> view("market://search?q=$e&c=apps")
+            "wikipedia" -> view("https://en.wikipedia.org/wiki/Special:Search?search=$e")
+            "twitter" -> view("https://twitter.com/search?q=$e")
+            "chrome" -> view("https://www.google.com/search?q=$e", "com.android.chrome")
+            else -> go(Intent(Intent.ACTION_WEB_SEARCH).putExtra("query", q))
+        }
+        say("Searching $q on $t")
     }
 
     private fun openApp(name: String) {
