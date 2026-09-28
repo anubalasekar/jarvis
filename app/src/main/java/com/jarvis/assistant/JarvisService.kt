@@ -90,8 +90,8 @@ class JarvisService : Service(), TextToSpeech.OnInitListener {
     private fun handleText(t: String) {
         if (t.isBlank()) return
         if (awaiting) { awaiting = false; proc.handle(t); return }
-        val w = wakeWords.firstOrNull { t.contains(it) } ?: return   // ignore everything without the wake word
-        val cmd = t.substringAfter(w).trim()
+        val m = wake.find(t) ?: return
+        val cmd = t.substring(m.range.last + 1).trim()
         if (cmd.isEmpty()) { awaiting = true; h.postDelayed({ awaiting = false }, 8000); say("Yes?") }
         else proc.handle(cmd)
     }
