@@ -7,42 +7,61 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.view.Gravity
+import android.view.WindowManager
+import android.widget.TextView
 import java.util.Locale
 
-/** Always-on listener: says "Jarvis <command>" or "Jarvis" ... "<command>". */
+/**
+ * Works like "Hey Google":
+ *  IDLE   -> only waits for "Hey Jarvis" (everything else is ignored)
+ *  ACTIVE -> beep + on-screen bubble, takes ONE command, runs it, then goes back to IDLE
+ */
 class JarvisService : Service(), TextToSpeech.OnInitListener {
     private val h = Handler(Looper.getMainLooper())
     private var rec: SpeechRecognizer? = null
     private lateinit var tts: TextToSpeech
     private lateinit var proc: CommandProcessor
+    private lateinit var nm: NotificationManager
+    private var tone: ToneGenerator? = null
+    private var overlay: TextView? = null
     private var speaking = false
-    private var awaiting = false
+    private var active = false
     private var running = true
     private val wake = Regex("\\b(hey|hi|hay|okay|ok)\\s+(jarvis|jervis|garvis|jarvish|jarvas)\\b")
+    private val timeout = Runnable { goIdle(0) }
 
     override fun onCreate() {
         super.onCreate()
-        val nm = getSystemService(NotificationManager::class.java)
+        nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("jarvis", "Jarvis", NotificationManager.IMPORTANCE_LOW))
+        startForeground(1, notif("Idle - say \"Hey Jarvis\""), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        tone = try { ToneGenerator(AudioManager.STREAM_MUSIC, 80) } catch (_: Exception) { null }
+        proc = CommandProcessor(this) { say(it) }
+        tts = TextToSpeech(this, this)
+    }
+
+    private fun notif(text: String): Notification {
         val stop = PendingIntent.getService(this, 0, Intent(this, JarvisService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE)
-        val n = Notification.Builder(this, "jarvis")
-            .setContentTitle("Jarvis is listening")
-            .setContentText("Say \"Jarvis\" followed by a command")
+        return Notification.Builder(this, "jarvis")
+            .setContentTitle("Jarvis").setContentText(text)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build())
             .setOngoing(true).build()
-        startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        proc = CommandProcessor(this) { say(it) }
-        tts = TextToSpeech(this, this)
     }
 
     override fun onInit(status: Int) {
@@ -62,6 +81,64 @@ class JarvisService : Service(), TextToSpeech.OnInitListener {
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "u" + System.nanoTime())
     }
 
+    // ---------- states ----------
+    private fun goActive() {
+        active = true
+        tone?.startTone(ToneGenerator.TONE_PROP_ACK, 150)
+        showOverlay("🎙  Jarvis is listening…")
+        nm.notify(1, notif("Listening for your command…"))
+        h.removeCallbacks(timeout); h.postDelayed(timeout, 8000)   // give up after 8s of silence
+    }
+
+    private fun goIdle(hideAfterMs: Long) {
+        active = false
+        h.removeCallbacks(timeout)
+        nm.notify(1, notif("Idle - say \"Hey Jarvis\""))
+        if (hideAfterMs > 0) h.postDelayed({ if (!active) hideOverlay() }, hideAfterMs) else hideOverlay()
+    }
+
+    private fun handleText(t: String) {
+        if (t.isBlank()) return
+        if (active) { runCommand(t); return }                     // ACTIVE: this is the command
+        val m = wake.find(t) ?: return                            // IDLE: ignore anything without "Hey Jarvis"
+        val cmd = t.substring(m.range.last + 1).trim()
+        goActive()
+        if (cmd.isEmpty()) say("Yes?") else runCommand(cmd)
+    }
+
+    private fun runCommand(cmd: String) {
+        h.removeCallbacks(timeout)
+        showOverlay("✓  $cmd")
+        proc.handle(cmd)
+        goIdle(1800)                                              // back to sleep until next "Hey Jarvis"
+    }
+
+    // ---------- floating bubble ----------
+    private fun showOverlay(text: String) {
+        if (!Settings.canDrawOverlays(this)) return
+        if (overlay == null) {
+            val tv = TextView(this).apply {
+                textSize = 18f; setTextColor(0xFF3DD9FF.toInt()); gravity = Gravity.CENTER
+                setPadding(56, 36, 56, 36)
+                background = GradientDrawable().apply { setColor(0xEE05080F.toInt()); cornerRadius = 80f; setStroke(3, 0xFF3DD9FF.toInt()) }
+            }
+            val lp = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = 220 }
+            try { (getSystemService(WINDOW_SERVICE) as WindowManager).addView(tv, lp); overlay = tv } catch (_: Exception) {}
+        }
+        overlay?.text = text
+    }
+
+    private fun hideOverlay() {
+        overlay?.let { try { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(it) } catch (_: Exception) {} }
+        overlay = null
+    }
+
+    // ---------- speech recognition loop ----------
     private fun listen() {
         if (!running || speaking) return
         rec?.destroy()
@@ -87,15 +164,6 @@ class JarvisService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun handleText(t: String) {
-        if (t.isBlank()) return
-        if (awaiting) { awaiting = false; proc.handle(t); return }
-        val m = wake.find(t) ?: return
-        val cmd = t.substring(m.range.last + 1).trim()
-        if (cmd.isEmpty()) { awaiting = true; h.postDelayed({ awaiting = false }, 8000); say("Yes?") }
-        else proc.handle(cmd)
-    }
-
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
         if (i?.action == "STOP") {
             getSharedPreferences("jarvis", 0).edit().putBoolean("enabled", false).apply()
@@ -106,8 +174,8 @@ class JarvisService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
-        running = false; h.removeCallbacksAndMessages(null)
-        rec?.destroy(); tts.shutdown(); super.onDestroy()
+        running = false; h.removeCallbacksAndMessages(null); hideOverlay()
+        rec?.destroy(); tone?.release(); tts.shutdown(); super.onDestroy()
     }
     override fun onBind(i: Intent?): IBinder? = null
 }
