@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Download Jarvis</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#05080f;color:#b8c7d9;font-family:system-ui,sans-serif}
+.c{max-width:380px;padding:24px;text-align:center}
+h1{color:#3dd9ff;letter-spacing:4px}
+input{width:100%;box-sizing:border-box;padding:12px;border-radius:8px;border:1px solid #234;background:#0b1220;color:#fff;font-size:16px;margin:12px 0}
+a.b{display:block;padding:16px;border-radius:10px;background:#3dd9ff;color:#04121a;font-weight:700;font-size:18px;text-decoration:none}
+small{display:block;margin-top:14px;color:#7f8fa3}
+</style></head><body><div class="c">
+<h1>J.A.R.V.I.S</h1>
+<p>Enter your GitHub repo once, then tap download.</p>
+<input id="r" placeholder="username/jarvis" autocomplete="off">
+<a class="b" id="d" href="#">⬇ Download Jarvis.apk</a>
+<small>Open this page on your phone. After downloading, tap the file and allow "install unknown apps".</small>
+</div>
+<script>
+var r=document.getElementById('r'),d=document.getElementById('d');
+try{r.value=localStorage.getItem('repo')||''}catch(e){}
+function u(){var v=r.value.trim();d.href=v?'https://github.com/'+v+'/releases/latest/download/Jarvis.apk':'#';try{localStorage.setItem('repo',v)}catch(e){}}
+r.oninput=u;u();
+d.onclick=function(e){if(!r.value.trim()){e.preventDefault();alert('Type your GitHub username/repo first');}};
+</script></body></html>

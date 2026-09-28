@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="a11y_desc">Lets Jarvis press Home, Back, scroll, lock the screen and take screenshots when you ask.</string>
+</resources>
